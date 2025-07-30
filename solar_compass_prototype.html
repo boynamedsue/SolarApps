@@ -1,0 +1,494 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Solar Compass">
+    <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><circle cx='50' cy='50' r='40' fill='%23ff6b35'/></svg>">
+    <link rel="manifest" href="data:application/json,{&quot;name&quot;:&quot;Solar Compass&quot;,&quot;short_name&quot;:&quot;SolarCompass&quot;,&quot;start_url&quot;:&quot;.&quot;,&quot;display&quot;:&quot;standalone&quot;,&quot;background_color&quot;:&quot;%231a1a1a&quot;,&quot;theme_color&quot;:&quot;%23ff6b35&quot;}">
+    <title>Solar Compass</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: #1a1a1a;
+            color: white;
+        }
+        .container {
+            max-width: 400px;
+            margin: 0 auto;
+        }
+        .status {
+            background: #333;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        .camera-container {
+            position: relative;
+            width: 100%;
+            height: 300px;
+            background: #000;
+            border-radius: 8px;
+            overflow: hidden;
+            margin-bottom: 20px;
+        }
+        #videoElement {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+        .crosshair {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 40px;
+            height: 40px;
+            border: 2px solid #ff6b35;
+            border-radius: 50%;
+            pointer-events: none;
+        }
+        .crosshair::before, .crosshair::after {
+            content: '';
+            position: absolute;
+            background: #ff6b35;
+        }
+        .crosshair::before {
+            top: -10px;
+            left: 50%;
+            width: 2px;
+            height: 20px;
+            transform: translateX(-50%);
+        }
+        .crosshair::after {
+            top: 50%;
+            left: -10px;
+            width: 20px;
+            height: 2px;
+            transform: translateY(-50%);
+        }
+        .touch-indicator {
+            position: absolute;
+            width: 20px;
+            height: 20px;
+            background: rgba(255, 107, 53, 0.8);
+            border: 2px solid #ff6b35;
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            display: none;
+        }
+        .data-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        .data-item {
+            background: #333;
+            padding: 15px;
+            border-radius: 8px;
+            text-align: center;
+        }
+        .data-label {
+            font-size: 12px;
+            color: #aaa;
+            margin-bottom: 5px;
+        }
+        .data-value {
+            font-size: 18px;
+            font-weight: bold;
+            color: #ff6b35;
+        }
+        .button {
+            background: #ff6b35;
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            border-radius: 8px;
+            font-size: 16px;
+            cursor: pointer;
+            width: 100%;
+            margin-bottom: 10px;
+        }
+        .button:hover {
+            background: #e55a2b;
+        }
+        .error {
+            background: #d32f2f;
+            color: white;
+            padding: 10px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        .instructions {
+            background: #2e5266;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Solar Compass Prototype</h1>
+        
+        <div class="instructions">
+            1. Allow camera and location access<br>
+            2. Point camera toward (but not directly at) the sun<br>
+            3. Tap where the sun appears on screen<br>
+            4. App calculates magnetic declination
+        </div>
+
+        <div id="error" class="error" style="display: none;"></div>
+
+        <div class="status">
+            <div class="data-label">Status</div>
+            <div id="status" class="data-value">Initializing...</div>
+        </div>
+
+        <div class="camera-container">
+            <video id="videoElement" autoplay playsinline></video>
+            <div class="crosshair"></div>
+            <div id="touchIndicator" class="touch-indicator"></div>
+        </div>
+
+        <button id="startCamera" class="button">Start Camera</button>
+
+        <div class="data-grid">
+            <div class="data-item">
+                <div class="data-label">Calculated Sun Azimuth</div>
+                <div id="calcSunAzimuth" class="data-value">--°</div>
+            </div>
+            <div class="data-item">
+                <div class="data-label">Sun Elevation</div>
+                <div id="sunElevation" class="data-value">--°</div>
+            </div>
+            <div class="data-item">
+                <div class="data-label">Magnetic Bearing</div>
+                <div id="magneticBearing" class="data-value">--°</div>
+            </div>
+            <div class="data-item">
+                <div class="data-label">Magnetic Declination</div>
+                <div id="magneticDeclination" class="data-value">--°</div>
+            </div>
+            <div class="data-item">
+                <div class="data-label">Device Heading</div>
+                <div id="deviceHeading" class="data-value">--°</div>
+            </div>
+            <div class="data-item">
+                <div class="data-label">Device Tilt</div>
+                <div id="deviceTilt" class="data-value">--°</div>
+            </div>
+        </div>
+
+        <div class="data-grid">
+            <div class="data-item">
+                <div class="data-label">Latitude</div>
+                <div id="latitude" class="data-value">--</div>
+            </div>
+            <div class="data-item">
+                <div class="data-label">Longitude</div>
+                <div id="longitude" class="data-value">--</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        class SolarCompass {
+            constructor() {
+                this.location = null;
+                this.deviceOrientation = { alpha: 0, beta: 0, gamma: 0 };
+                this.sunPosition = null;
+                this.lastTouchPosition = null;
+                this.cameraFOV = 60; // degrees, approximate
+                
+                this.initializeApp();
+            }
+
+            async initializeApp() {
+                try {
+                    await this.requestPermissions();
+                    this.setupEventListeners();
+                    this.startLocationTracking();
+                    this.startOrientationTracking();
+                    this.updateDisplay();
+                    document.getElementById('status').textContent = 'Ready';
+                } catch (error) {
+                    this.showError(error.message);
+                }
+            }
+
+            async requestPermissions() {
+                // Check if we're in a secure context (HTTPS required for many APIs)
+                if (!window.isSecureContext) {
+                    throw new Error('HTTPS required for camera and sensor access');
+                }
+
+                // Request device orientation permission (iOS 13+)
+                if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+                    const permission = await DeviceOrientationEvent.requestPermission();
+                    if (permission !== 'granted') {
+                        throw new Error('Device orientation permission denied');
+                    }
+                }
+            }
+
+            setupEventListeners() {
+                document.getElementById('startCamera').addEventListener('click', () => this.startCamera());
+                
+                // Camera touch detection
+                const videoElement = document.getElementById('videoElement');
+                videoElement.addEventListener('click', (e) => this.handleCameraTouch(e));
+            }
+
+            async startCamera() {
+                try {
+                    // Check for getUserMedia support
+                    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                        throw new Error('Camera API not supported');
+                    }
+
+                    const stream = await navigator.mediaDevices.getUserMedia({
+                        video: { 
+                            facingMode: 'environment',
+                            width: { ideal: 1280 },
+                            height: { ideal: 720 }
+                        }
+                    });
+                    
+                    document.getElementById('videoElement').srcObject = stream;
+                    document.getElementById('startCamera').style.display = 'none';
+                    document.getElementById('status').textContent = 'Camera active - Tap sun position';
+                } catch (error) {
+                    this.showError(`Camera error: ${error.message}. Try using HTTPS or add to home screen.`);
+                }
+            }
+
+            startLocationTracking() {
+                if (!navigator.geolocation) {
+                    this.showError('Geolocation not supported');
+                    return;
+                }
+
+                // Show current status
+                document.getElementById('status').textContent = 'Requesting location...';
+
+                navigator.geolocation.getCurrentPosition(
+                    (position) => {
+                        this.location = {
+                            latitude: position.coords.latitude,
+                            longitude: position.coords.longitude
+                        };
+                        this.calculateSunPosition();
+                        this.updateDisplay();
+                        document.getElementById('status').textContent = 'Location acquired';
+                    },
+                    (error) => {
+                        let errorMsg = 'Location access denied';
+                        switch(error.code) {
+                            case error.PERMISSION_DENIED:
+                                errorMsg = 'Location permission denied. Enable in browser settings.';
+                                break;
+                            case error.POSITION_UNAVAILABLE:
+                                errorMsg = 'Location unavailable. Try outdoors or enable precise location.';
+                                break;
+                            case error.TIMEOUT:
+                                errorMsg = 'Location timeout. Try refreshing.';
+                                break;
+                        }
+                        this.showError(errorMsg);
+                    },
+                    { 
+                        enableHighAccuracy: true,
+                        timeout: 10000,
+                        maximumAge: 300000 
+                    }
+                );
+            }
+
+            startOrientationTracking() {
+                window.addEventListener('deviceorientationabsolute', (e) => {
+                    this.deviceOrientation = {
+                        alpha: e.alpha || 0, // compass heading
+                        beta: e.beta || 0,   // tilt front/back
+                        gamma: e.gamma || 0  // tilt left/right
+                    };
+                    this.updateDisplay();
+                });
+
+                // Fallback for devices without absolute orientation
+                window.addEventListener('deviceorientation', (e) => {
+                    if (!this.deviceOrientation.alpha) {
+                        this.deviceOrientation = {
+                            alpha: e.alpha || 0,
+                            beta: e.beta || 0,
+                            gamma: e.gamma || 0
+                        };
+                        this.updateDisplay();
+                    }
+                });
+            }
+
+            calculateSunPosition() {
+                if (!this.location) return;
+
+                const now = new Date();
+                
+                // Use the accurate solar position algorithm from your surveying app
+                const rad = Math.PI / 180;
+                const dayMs = 1000 * 60 * 60 * 24;
+                const J1970 = 2440588;
+                const J2000 = 2451545;
+                const e = rad * 23.4397; // obliquity of the Earth
+                
+                const toJulian = (date) => date.valueOf() / dayMs - 0.5 + J1970;
+                const toDays = (date) => toJulian(date) - J2000;
+                
+                const astroRefraction = (h) => {
+                    if (h < 0) h = 0;
+                    return 0.0002967 / Math.tan(h + 0.00312536 / (h + 0.08901179));
+                };
+                
+                const solarMeanAnomaly = (d) => rad * (357.5291 + 0.98560028 * d);
+                
+                const eclipticLongitude = (M) => {
+                    const C = rad * (1.9148 * Math.sin(M) + 0.02 * Math.sin(2 * M) + 0.0003 * Math.sin(3 * M));
+                    const P = rad * 102.9372;
+                    return M + C + P + Math.PI;
+                };
+                
+                const sunCoords = (d) => {
+                    const M = solarMeanAnomaly(d);
+                    const L = eclipticLongitude(M);
+                    return {
+                        dec: Math.asin(Math.sin(L) * Math.sin(e)),
+                        ra: Math.atan2(Math.sin(L) * Math.cos(e), Math.cos(L))
+                    };
+                };
+                
+                const siderealTime = (d, lw) => rad * (280.16 + 360.9856235 * d) - lw;
+                const altitude = (H, phi, dec) => Math.asin(Math.sin(phi) * Math.sin(dec) + Math.cos(phi) * Math.cos(dec) * Math.cos(H));
+                const azimuth = (H, phi, dec) => Math.atan2(Math.sin(H), Math.cos(H) * Math.sin(phi) - Math.tan(dec) * Math.cos(phi));
+                
+                // Convert location to radians
+                const lw = rad * -this.location.longitude;
+                const phi = rad * this.location.latitude;
+                const d = toDays(now);
+                
+                // Calculate sun coordinates
+                const c = sunCoords(d);
+                const H = siderealTime(d, lw) - c.ra;
+                
+                // Calculate elevation with atmospheric refraction
+                let h = altitude(H, phi, c.dec);
+                h = h + astroRefraction(h * 180 / Math.PI);
+                
+                // Calculate azimuth
+                const a = azimuth(H, phi, c.dec);
+                
+                // Convert to surveying azimuth (0° = North, clockwise)
+                let surveyingAzimuth = a + Math.PI;
+                if (surveyingAzimuth < 0) surveyingAzimuth += 2 * Math.PI;
+                if (surveyingAzimuth >= 2 * Math.PI) surveyingAzimuth -= 2 * Math.PI;
+                
+                this.sunPosition = {
+                    azimuth: surveyingAzimuth * 180 / Math.PI,
+                    elevation: h * 180 / Math.PI
+                };
+            }
+
+            handleCameraTouch(event) {
+                const rect = event.target.getBoundingClientRect();
+                const x = event.clientX - rect.left;
+                const y = event.clientY - rect.top;
+                
+                // Convert to normalized coordinates (-1 to 1)
+                const normalizedX = (x / rect.width - 0.5) * 2;
+                const normalizedY = (y / rect.height - 0.5) * 2;
+                
+                // Show touch indicator
+                const indicator = document.getElementById('touchIndicator');
+                indicator.style.left = x + 'px';
+                indicator.style.top = y + 'px';
+                indicator.style.display = 'block';
+                setTimeout(() => indicator.style.display = 'none', 1000);
+                
+                // Calculate bearing to touched point
+                this.calculateBearingFromTouch(normalizedX, normalizedY);
+                this.updateDisplay();
+            }
+
+            calculateBearingFromTouch(normalizedX, normalizedY) {
+                // Convert screen coordinates to angular offsets
+                const horizontalAngle = normalizedX * (this.cameraFOV / 2);
+                const verticalAngle = normalizedY * (this.cameraFOV / 2);
+                
+                // Combine with device orientation to get absolute bearing
+                const deviceHeading = this.deviceOrientation.alpha || 0;
+                const deviceTilt = this.deviceOrientation.beta || 0;
+                
+                const sunBearing = (deviceHeading + horizontalAngle + 360) % 360;
+                
+                // Calculate magnetic declination
+                if (this.sunPosition) {
+                    const calculatedSunAzimuth = this.sunPosition.azimuth;
+                    let declination = calculatedSunAzimuth - sunBearing;
+                    
+                    // Normalize to -180 to 180
+                    while (declination > 180) declination -= 360;
+                    while (declination < -180) declination += 360;
+                    
+                    this.magneticDeclination = declination;
+                    this.measuredSunBearing = sunBearing;
+                }
+            }
+
+            getDayOfYear(date) {
+                const start = new Date(date.getFullYear(), 0, 0);
+                const diff = date - start;
+                return Math.floor(diff / (1000 * 60 * 60 * 24));
+            }
+
+            updateDisplay() {
+                if (this.location) {
+                    document.getElementById('latitude').textContent = this.location.latitude.toFixed(4) + '°';
+                    document.getElementById('longitude').textContent = this.location.longitude.toFixed(4) + '°';
+                }
+
+                if (this.sunPosition) {
+                    document.getElementById('calcSunAzimuth').textContent = this.sunPosition.azimuth.toFixed(1) + '°';
+                    document.getElementById('sunElevation').textContent = this.sunPosition.elevation.toFixed(1) + '°';
+                }
+
+                if (this.measuredSunBearing !== undefined) {
+                    document.getElementById('magneticBearing').textContent = this.measuredSunBearing.toFixed(1) + '°';
+                }
+
+                if (this.magneticDeclination !== undefined) {
+                    document.getElementById('magneticDeclination').textContent = this.magneticDeclination.toFixed(1) + '°';
+                }
+
+                document.getElementById('deviceHeading').textContent = this.deviceOrientation.alpha.toFixed(1) + '°';
+                document.getElementById('deviceTilt').textContent = this.deviceOrientation.beta.toFixed(1) + '°';
+            }
+
+            showError(message) {
+                const errorDiv = document.getElementById('error');
+                errorDiv.textContent = message;
+                errorDiv.style.display = 'block';
+                document.getElementById('status').textContent = 'Error';
+            }
+        }
+
+        // Initialize the app when page loads
+        window.addEventListener('load', () => {
+            new SolarCompass();
+        });
+    </script>
+</body>
+</html>
